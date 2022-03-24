@@ -1,4 +1,4 @@
-# Slow Consuming Demo
+# Bugger Demo
 
 ## Usage
 

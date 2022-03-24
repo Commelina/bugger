@@ -17,4 +17,4 @@
   :dependencies [[org.clojure/clojure "1.10.3"]
                  [random-string "0.1.0"]
                  [org.clojure/tools.logging "1.2.4"]
-                 [io.hstream/hstreamdb-java "0.7.1-SNAPSHOT"]])
+                 [io.hstream/hstreamdb-java "0.8.0-SNAPSHOT"]])
