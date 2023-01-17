@@ -11,10 +11,12 @@
             #"central" {:name "central-aliyun",
                         :url "https://maven.aliyun.com/repository/public",
                         :repo-manager true}}
+  :profiles {:write {:main bugger.write},
+             :read {:main bugger.read}}
   :repositories
     [["sonatype-snapshot"
       "https://s01.oss.sonatype.org/content/repositories/snapshots"]]
   :dependencies [[org.clojure/clojure "1.10.3"]
                  [random-string "0.1.0"]
                  [org.clojure/tools.logging "1.2.4"]
-                 [io.hstream/hstreamdb-java "0.8.0-SNAPSHOT"]])
+                 [io.hstream/hstreamdb-java "0.13.0-SNAPSHOT"]])

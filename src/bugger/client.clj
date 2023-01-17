@@ -5,10 +5,11 @@
             [clojure.tools.logging :refer :all]
             [bugger.utils :refer :all])
   (:import [io.hstream HStreamClient HStreamClientBuilder ProducerBuilder
-            HRecord HRecordBuilder Subscription RecordId HRecordReceiver
+            HRecord HRecordBuilder Subscription HRecordReceiver
             ReceivedHRecord Responder Stream Record]
            [io.hstream.impl HStreamClientBuilderImpl]
            [java.util.concurrent TimeUnit]))
+
 
 (defn get-client
   [url]
@@ -19,23 +20,47 @@
   (try (get-client url)
        (catch Exception e (do (Thread/sleep 1000) (get-client-until-ok url)))))
 
+(defn get-client-among-urls
+  [urls]
+  (reduce (fn [acc url]
+            (let [[_ target-client] acc]
+              (if (nil? target-client)
+                (try (let [client (get-client url)] [url client])
+                     (catch Exception e [url nil]))
+                acc)))
+    [(first urls) nil]
+    urls))
+
+(defn get-client-start-from-url
+  [url]
+  (let [all-urls (map #(str % ":6570") ["n1" "n2" "n3" "n4" "n5"])
+        other-urls (remove #(= % url) all-urls)]
+    (get-client-among-urls (cons url other-urls))))
+
 (defn create-stream
-  [client stream-name]
-  (HStreamClient/.createStream client stream-name))
+  ([client stream-name]
+   (HStreamClient/.createStream client stream-name))
+  ([client stream-name partitions]
+   (let [replication 1]
+     (HStreamClient/.createStream client stream-name replication partitions))))
 
 (defn list-streams
   [client]
   (map #(Stream/.getStreamName %) (.listStreams client)))
 
 (defn delete-stream
-  [client stream-name]
-  (try (HStreamClient/.deleteStream client stream-name)
-       (catch Exception e nil)))
+  ([client stream-name]
+   (HStreamClient/.deleteStream client stream-name))
+  ([client stream-name force]
+   (HStreamClient/.deleteStream client stream-name force)))
 
 (defn delete-all-streams
-  [client]
-  (let [all-streams (list-streams client)]
-    (dorun (map #(delete-stream client %) all-streams))))
+  ([client]
+   (let [all-streams (list-streams client)]
+     (dorun (map #(delete-stream client %) all-streams))))
+  ([client force]
+   (let [all-streams (list-streams client)]
+     (dorun (map #(delete-stream client % force) all-streams)))))
 
 (defn create-producer
   [client stream-name]
@@ -60,20 +85,24 @@
      (.write producer record)))
   ([producer data-to-write key]
    (let [hrecord (map-to-hrecord data-to-write)
-         record (.build (.hRecord (.orderingKey (Record/newBuilder) key)
+         record (.build (.hRecord (.partitionKey (Record/newBuilder) key)
                                   hrecord))]
      (.write producer record))))
 
 (defn subscribe
-  [client sub-id stream timeout]
-  (let [subscription (.build (.ackTimeoutSeconds
-                               (.stream (.subscription (Subscription/newBuilder)
-                                                       sub-id)
-                                        stream)
-                               timeout))]
+  [client sub-id stream timeout offset]
+  (let [subscription (.build (.offset
+                              (.ackTimeoutSeconds
+                               (.stream
+                                (.subscription (Subscription/newBuilder) sub-id)
+                                stream)
+                               timeout)
+                              offset))]
     (.createSubscription client subscription)))
 
-(defn unsubscribe [client sub-id] (.deleteSubscription client sub-id))
+(defn unsubscribe
+  ([client sub-id] (.deleteSubscription client sub-id))
+  ([client sub-id force] (.deleteSubscription client sub-id force)))
 
 (defn consume
   [client sub-id callback]
@@ -91,8 +120,10 @@
   [received-hrecord responder]
   (let [record-id (.getRecordId received-hrecord)
         hrecord (.getHRecord received-hrecord)]
-    (info "~~~ Received: ID = " record-id " contents = " hrecord)
-    (.ack responder)))
+    (info "********* Received: ID = " record-id " contents = " hrecord)
+    (Thread/sleep (* 100 1000))
+    (.ack responder)
+    ))
 
 (defn gen-collect-hrecord-callback
   [ref]
@@ -107,7 +138,7 @@
   (fn [received-hrecord responder]
     (let [record-id (.getRecordId received-hrecord)
           hrecord (.getHRecord received-hrecord)
-          value (parse-int (.getString hrecord ":data"))]
+          value (parse-int (.getString hrecord ":key"))]
       (dosync
         (alter ref conj value)
         (if (in? @ref value)
